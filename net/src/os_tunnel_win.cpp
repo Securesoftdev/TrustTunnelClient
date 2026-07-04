@@ -110,10 +110,12 @@ static GUID uuid_v5(std::string_view uuid_namespace, std::string_view uuid_data)
 static WINTUN_ADAPTER_HANDLE create_wintun_adapter(std::string_view adapter_name, std::string_view tunnel_type) {
     std::wstring adapter_name_wide = ag::utils::to_wstring(adapter_name);
     std::wstring tunnel_type_wide = ag::utils::to_wstring(tunnel_type);
+    infolog(logger, "Opening Wintun adapter '{}'", adapter_name);
     WINTUN_ADAPTER_HANDLE adapter = WintunOpenAdapter(adapter_name_wide.c_str());
     if (!adapter) {
         dbglog(logger, "WintunOpenAdapter: {}", ag::sys::strerror(ag::sys::last_error()));
         GUID guid = uuid_v5("VpnLibsTunnels", adapter_name);
+        infolog(logger, "Creating Wintun adapter '{}'", adapter_name);
         adapter = WintunCreateAdapter(adapter_name_wide.c_str(), tunnel_type_wide.c_str(), &guid);
         if (!adapter) {
             errlog(logger, "WintunCreateAdapter: {}", ag::sys::strerror(ag::sys::last_error()));
@@ -223,6 +225,7 @@ ag::VpnError ag::VpnWinTunnel::init(
         return {-1, "Unable to create wintun quit event"};
     }
     m_if_index = get_wintun_adapter_index(m_wintun_adapter);
+    infolog(logger, "Wintun adapter '{}' interface index {}", win_settings->adapter_name, m_if_index);
     CidrRange ipv4_address = tunnel_utils::get_address_for_index(settings->ipv4_address, m_if_index);
     CidrRange ipv6_address = tunnel_utils::get_address_for_index(settings->ipv6_address, m_if_index);
     m_wintun_session = create_wintun_session(ipv4_address, ipv6_address, m_wintun_adapter,
