@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <fstream>
 #include <list>
@@ -74,6 +75,15 @@ static const VpnEndpoint *find_endpoint_in_context(const TestCtx *ctx, const Vpn
     return nullptr;
 }
 
+static void standard_runner_cb(void *arg, const LocationsPingerResult *result) {
+    auto *ctx = (TestCtx *) arg;
+    const char *id = result->id;
+    const VpnEndpoint *ep = result->endpoint;
+    ctx->results[id] = *result;
+    ctx->results[id].endpoint = find_endpoint_in_context(ctx, ep);
+    ctx->result_ids[id] = id;
+}
+
 TEST_F(LocationsPingerRunnerTest, Single) {
 #ifdef IPV6_UNAVAILABLE
     GTEST_SKIP() << "Comment me out if you want to run this test";
@@ -91,16 +101,7 @@ TEST_F(LocationsPingerRunnerTest, Single) {
     TestCtx test_ctx = generate_test_ctx();
     test_ctx.info.locations = {&location, 1};
 
-    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
-            {
-                    [](void *arg, const LocationsPingerResult *result) {
-                        auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = *result;
-                        ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
-                        ctx->result_ids[result->id] = result->id;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info, {standard_runner_cb, &test_ctx}));
 
     locations_pinger_runner_run(test_ctx.runner.get());
 
@@ -123,16 +124,7 @@ TEST_F(LocationsPingerRunnerTest, WholeLocationFailed) {
     test_ctx.info.locations = {&location, 1};
     test_ctx.info.timeout_ms = 500; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
-    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
-            {
-                    [](void *arg, const LocationsPingerResult *result) {
-                        auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = *result;
-                        ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
-                        ctx->result_ids[result->id] = result->id;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info, {standard_runner_cb, &test_ctx}));
 
     locations_pinger_runner_run(test_ctx.runner.get());
 
@@ -165,17 +157,7 @@ TEST_F(LocationsPingerRunnerTest, Multiple) {
     TestCtx test_ctx = generate_test_ctx();
     test_ctx.info.locations = {locations.data(), uint32_t(locations.size())};
 
-    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
-            {
-                    [](void *arg, const LocationsPingerResult *result) {
-                        auto *ctx = (TestCtx *) arg;
-                        assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
-                        ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
-                        ctx->result_ids[result->id] = result->id;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info, {standard_runner_cb, &test_ctx}));
 
     locations_pinger_runner_run(test_ctx.runner.get());
 
@@ -211,16 +193,7 @@ TEST_F(LocationsPingerRunnerTest, Timeout) {
     test_ctx.info.timeout_ms = 100; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     test_ctx.info.locations = {locations.data(), uint32_t(locations.size())};
 
-    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
-            {
-                    [](void *arg, const LocationsPingerResult *result) {
-                        auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = *result;
-                        ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
-                        ctx->result_ids[result->id] = result->id;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info, {standard_runner_cb, &test_ctx}));
 
     locations_pinger_runner_run(test_ctx.runner.get());
 
@@ -247,16 +220,7 @@ TEST_F(LocationsPingerRunnerTest, StopAnotherThread) {
     TestCtx test_ctx = generate_test_ctx();
     test_ctx.info.locations = {locations.data(), uint32_t(locations.size())};
 
-    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
-            {
-                    [](void *arg, const LocationsPingerResult *result) {
-                        auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = *result;
-                        ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
-                        ctx->result_ids[result->id] = result->id;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info, {standard_runner_cb, &test_ctx}));
 
     std::atomic_bool started = false;
     vpn_event_loop_submit(locations_pinger_runner_get_loop(test_ctx.runner.get()), {&started, [](void *arg, TaskId) {
@@ -632,7 +596,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                                 if (!result->conn_state) {
                                     ctx->conn_state_failed = true;
                                 } else if (result->is_quic) {
-                                    quic_connector_destroy((QuicConnector *) result->conn_state);
+                                    std::unique_ptr<QuicConnectorResult>{(QuicConnectorResult *) result->conn_state};
                                 } else {
                                     tcp_socket_destroy((TcpSocket *) result->conn_state);
                                 }
@@ -656,7 +620,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
     locations_pinger_runner_run(runner);
     locations_pinger_runner_free(runner);
 
-    std::sort(ctx.results.begin(), ctx.results.end(), [](const Result &a, const Result &b) {
+    std::ranges::sort(ctx.results, [](const Result &a, const Result &b) {
         return a.ms > b.ms;
     });
 

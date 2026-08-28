@@ -7,10 +7,8 @@ project(vpn_libs C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
-find_package(quiche)
-if (NOT quiche_DIR)
-    set(DISABLE_HTTP3 ON)
-endif()
+option(VPNLIBS_ENABLE_LIVE_TESTS "Register live tests in CTest" OFF)
+option(VPNLIBS_CAPI_LINUX_EXPORTS "Resolve WIN_EXPORT to default visibility in Linux C API package builds" OFF)
 
 if (DISABLE_HTTP3)
     add_compile_definitions(DISABLE_HTTP3)
@@ -29,6 +27,15 @@ endif ()
 
 if (IPV6_UNAVAILABLE)
     add_compile_definitions(IPV6_UNAVAILABLE)
+endif()
+
+if (SANITIZE)
+    add_compile_options("-fsanitize=address")
+    link_libraries("-fsanitize=address")
+endif(SANITIZE)
+
+if (CMAKE_SYSTEM_NAME STREQUAL Linux AND VPNLIBS_CAPI_LINUX_EXPORTS)
+    add_compile_definitions(VPNLIBS_CAPI_LINUX_EXPORTS=1)
 endif()
 
 add_subdirectory(core)

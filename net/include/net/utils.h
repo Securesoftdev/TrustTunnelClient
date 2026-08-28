@@ -38,6 +38,7 @@ struct CertVerifyCtx {
     X509 *cert = nullptr;
     STACK_OF(X509) *chain = nullptr;
     SSL *ssl = nullptr;
+    VpnCertVerificationType verification_type = VT_DEFAULT;
 };
 
 struct CertVerifyHandler {
@@ -136,7 +137,6 @@ struct IcmpEchoRequestEvent {
 
 enum MakeSslProtocolType {
     MSPT_TLS,    /**< plain SSL object */
-    MSPT_QUICHE, /**< SSL object will be used with quiche */
     MSPT_NGTCP2, /**< SSL object will be used with ngtcp2 */
 };
 

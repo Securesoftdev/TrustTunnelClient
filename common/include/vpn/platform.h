@@ -97,6 +97,8 @@ static inline pid_t gettid(void) {
 #include <winsock2.h>
 #undef ERROR
 #undef DELETE
+// Use this instead of DELETE:
+#define STANDARD_RIGHTS_DELETE (0x00010000L)
 #undef PASSTHROUGH
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
@@ -154,7 +156,7 @@ static inline uint32_t gettid() {
 #define AG_EXPORT
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(VPNLIBS_CAPI_LINUX_EXPORTS)
 #define WIN_EXPORT AG_EXPORT
 #else
 #define WIN_EXPORT

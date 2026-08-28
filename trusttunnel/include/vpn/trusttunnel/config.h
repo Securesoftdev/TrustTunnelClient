@@ -28,6 +28,7 @@ struct TrustTunnelConfig {
         ag::VpnUpstreamProtocol upstream_protocol = ag::VPN_UP_HTTP2;
         std::string client_random;
         std::string client_random_mask;
+        std::optional<std::vector<std::string>> dns_upstreams;
         bool skip_verification = false;
         bool anti_dpi = false;
         bool has_ipv6 = false;
@@ -40,11 +41,15 @@ struct TrustTunnelConfig {
     };
 
     struct TunListener {
+        std::string device_name;
         std::vector<std::string> included_routes;
         std::vector<std::string> excluded_routes;
         uint32_t mtu_size = 0;
+        uint32_t tcp_recv_buf_size = 0; ///< TCP receive window size in bytes (0 = compile-time default)
+        uint32_t tcp_send_buf_size = 0; ///< TCP send buffer size in bytes (0 = compile-time default)
         std::string bound_if;
         bool change_system_dns = true;
+        bool use_existing = false;
         std::optional<std::string> netns;
     };
 
@@ -55,10 +60,14 @@ struct TrustTunnelConfig {
     bool killswitch_enabled = false;
     std::string killswitch_allow_ports;
     bool post_quantum_group_enabled = true;
+    bool exclusions_tcp_early_ack_enabled = false;
+    bool exclusions_preresolve_enabled = true;
+    uint32_t exclusions_preresolve_max_queries = 0; // Use default value
+    std::string exclusions_scannable_ports;         // Empty = use default list
     std::string log_file_path;
     std::string exclusions;
     std::optional<std::string> ssl_session_storage_path;
-    std::vector<std::string> dns_upstreams;
+    std::vector<std::string> legacy_dns_upstreams;
     Location location;
     Listener listener;
 

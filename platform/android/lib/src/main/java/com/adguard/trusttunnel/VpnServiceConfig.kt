@@ -1,6 +1,5 @@
 package com.adguard.trusttunnel
 
-import com.adguard.trusttunnel.log.LoggerManager
 import com.akuleshov7.ktoml.Toml
 import com.akuleshov7.ktoml.TomlInputConfig
 import kotlinx.serialization.SerialName
@@ -22,13 +21,18 @@ class Listener (
 )
 
 @Serializable
+class Endpoint (
+    @SerialName("dns_upstreams")
+    val dnsUpstreams: List<String> = emptyList()
+)
+
+@Serializable
 class VpnServiceConfig (
     val listener: Listener,
-    @SerialName("dns_upstreams")
-    val dnsUpstreams: List<String>
+    val endpoint: Endpoint
 ) {
     companion object {
-        private val LOG = LoggerManager.getLogger("VpnServiceConfig")
+        private val LOG = Logger("VpnServiceConfig")
         fun parseToml(config: String): VpnServiceConfig? {
             try {
                 val toml = Toml(

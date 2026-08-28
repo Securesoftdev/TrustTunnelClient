@@ -1,6 +1,8 @@
+pub use trusttunnel_settings::Endpoint;
+
 use crate::user_interaction::{
-    ask_for_agreement, ask_for_agreement_with_default, ask_for_input, ask_for_password,
-    select_variant,
+    ask_for_agreement, ask_for_agreement_with_default, ask_for_input, ask_for_input_raw_line,
+    ask_for_password, select_variant,
 };
 use crate::Mode;
 use serde::{Deserialize, Serialize};
@@ -78,6 +80,25 @@ kill switch, allow inbound connections to these local ports. An array of integer
 in TLS handshakes initiated by the VPN client."#)}
         #[serde(default = "Settings::default_post_quantum_group_enabled")]
         pub post_quantum_group_enabled: bool,
+        #{doc(r#"When enabled, all TCP connections to scannable ports are initially
+routed through a fake upstream to read the TLS SNI before making any real connection.
+This ensures site exclusions work correctly when a secure DNS resolver is configured
+outside of AdGuard VPN, or when the exclusion list contains wildcard entries (e.g. *.example.com)."#)}
+        #[serde(default = "Settings::default_exclusions_tcp_early_ack_enabled")]
+        pub exclusions_tcp_early_ack_enabled: bool,
+        #{doc(r#"When enabled, DNS-resolvable exclusions are pre-resolved in the background after the
+exclusion list is updated. This populates the suspects cache so that connections to
+excluded hosts are routed correctly without waiting for the first DNS response."#)}
+        #[serde(default = "Settings::default_exclusions_preresolve_enabled")]
+        pub exclusions_preresolve_enabled: bool,
+        #{doc(r#"Maximum number of exclusion domains to pre-resolve per cycle."#)}
+        #[serde(default = "Settings::default_exclusions_preresolve_max_queries")]
+        pub exclusions_preresolve_max_queries: u32,
+        #{doc(r#"Comma-separated list of ports considered "scannable" for domain extraction and exclusion matching.
+Supports individual ports and ranges, e.g. `443,80,8080:8090,853`.
+If empty, the default list is used."#)}
+        #[serde(default = "Settings::default_exclusions_scannable_ports")]
+        pub exclusions_scannable_ports: String,
         #{doc(r#"Domains and addresses which should be routed in a special manner.
 Supported syntax:
   * domain name
@@ -101,63 +122,9 @@ Supported syntax:
       * IPv6Address/mask"#)}
         #[serde(default)]
         pub exclusions: Vec<String>,
-        #{doc(r#"DNS upstreams.
-If specified, the library intercepts and routes plain DNS queries
-going through the endpoint to the DNS resolvers.
-One of the following kinds:
-  * 8.8.8.8:53 -- plain DNS
-  * tcp://8.8.8.8:53 -- plain DNS over TCP
-  * tls://1.1.1.1 -- DNS-over-TLS
-  * https://dns.adguard.com/dns-query -- DNS-over-HTTPS
-  * sdns://... -- DNS stamp (see https://dnscrypt.info/stamps-specifications)
-  * quic://dns.adguard.com:8853 -- DNS-over-QUIC"#)}
-        #[serde(default)]
-        pub dns_upstreams: Vec<String>,
         pub endpoint: Endpoint,
         #[serde(default)]
         pub listener: Listener,
-    }
-}
-
-docgen! {
-    #{doc("The set of endpoint connection settings")}
-    #[derive(Default, Deserialize, Serialize)]
-    pub struct Endpoint {
-        #{doc("Endpoint host name, used for TLS session establishment")}
-        pub hostname: String,
-        #{doc(r#"Endpoint addresses (IP:port or hostname:port).
-The exact address is selected by the pinger. Hostnames are resolved via DNS
-at connect time. Absence of IPv6 addresses in the list makes the VPN client
-reject IPv6 connections which must be routed through the endpoint with
-unreachable code."#)}
-        pub addresses: Vec<String>,
-        #{doc("Whether IPv6 traffic can be routed through the endpoint")}
-        #[serde(default = "Endpoint::default_has_ipv6")]
-        pub has_ipv6: bool,
-        #{doc("Username for authorization")}
-        pub username: String,
-        #{doc("Password for authorization")}
-        pub password: String,
-        #{doc("TLS client random prefix and mask (hex string, format: prefix[/mask])")}
-        #[serde(default)]
-        pub client_random: String,
-        #{doc(r#"Skip the endpoint certificate verification?
-That is, any certificate is accepted with this one set to true."#)}
-        #[serde(default)]
-        pub skip_verification: bool,
-        #{doc(r#"Endpoint certificate in PEM format.
-If not specified, the endpoint certificate is verified using the system storage."#)}
-        pub certificate: Option<String>,
-        #{doc("Protocol to be used to communicate with the endpoint [http2, http3]")}
-        #[serde(default)]
-        pub upstream_protocol: String,
-        #{doc("Is anti-DPI measures should be enabled")}
-        #[serde(default)]
-        pub anti_dpi: bool,
-        #{doc(r#"Custom SNI value for TLS handshake.
-If set, this value is used as the TLS SNI instead of the hostname."#)}
-        #[serde(default)]
-        pub custom_sni: String,
     }
 }
 
@@ -204,9 +171,24 @@ On Windows, an interface index as shown by `route print`, written as a string, m
         #{doc("MTU size on the interface")}
         #[serde(default = "TunListener::default_mtu_size")]
         pub mtu_size: usize,
+        #{doc("TCP receive window size in bytes. 0 uses optimized default (256 KB). Adjust only for constrained environments")}
+        #[serde(default = "TunListener::default_tcp_recv_buf_size")]
+        pub tcp_recv_buf_size: usize,
+        #{doc("TCP send buffer size in bytes. 0 uses optimized default (256 KB). Adjust only for constrained environments")}
+        #[serde(default = "TunListener::default_tcp_send_buf_size")]
+        pub tcp_send_buf_size: usize,
         #{doc("Allow changing system DNS servers")}
         #[serde(default = "TunListener::default_change_system_dns")]
         pub change_system_dns: bool,
+        #{doc(r#"TUN / Wintun device name.
+On Linux: TUN interface name (empty = kernel-assigned).
+On macOS: request a specific `utun<N>` unit (empty = kernel-assigned).
+On Windows: Wintun adapter name (empty = auto-generated from hostname)."#)}
+        #[serde(default = "TunListener::default_device_name")]
+        pub device_name: String,
+        #{doc("Attach to a pre-existing TUN device named `device_name` instead of creating one. Requires `device_name` to be non-empty. Linux only; ignored on Windows and macOS.")}
+        #[serde(default = "TunListener::default_use_existing")]
+        pub use_existing: bool,
     }
 }
 
@@ -236,23 +218,29 @@ impl Settings {
         // VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED
         true
     }
-}
 
-impl Endpoint {
-    pub fn default_upstream_protocol() -> String {
-        "http2".into()
+    pub fn default_exclusions_tcp_early_ack_enabled() -> bool {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_TCP_EARLY_ACK_ENABLED
+        false
     }
 
-    pub fn default_has_ipv6() -> bool {
+    pub fn default_exclusions_preresolve_enabled() -> bool {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_ENABLED
         true
     }
 
-    pub fn default_anti_dpi() -> bool {
-        false
+    pub fn default_exclusions_preresolve_max_queries() -> u32 {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_MAX_QUERIES
+        50
     }
 
-    pub fn default_skip_verification() -> bool {
-        false
+    pub fn default_exclusions_scannable_ports() -> String {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_SCANNABLE_PORTS
+        "443,80,8080,8008,853".into()
     }
 }
 
@@ -300,11 +288,27 @@ impl TunListener {
         ]
     }
     pub fn default_mtu_size() -> usize {
-        1280
+        1350
+    }
+
+    pub fn default_tcp_recv_buf_size() -> usize {
+        0
+    }
+
+    pub fn default_tcp_send_buf_size() -> usize {
+        0
     }
 
     pub fn default_change_system_dns() -> bool {
         true
+    }
+
+    pub fn default_device_name() -> String {
+        "".into()
+    }
+
+    pub fn default_use_existing() -> bool {
+        false
     }
 }
 
@@ -339,10 +343,19 @@ pub fn build(template: Option<&Settings>) -> Settings {
         post_quantum_group_enabled: opt_field!(template, post_quantum_group_enabled)
             .cloned()
             .unwrap_or_else(Settings::default_post_quantum_group_enabled),
-        exclusions: opt_field!(template, exclusions)
+        exclusions_tcp_early_ack_enabled: opt_field!(template, exclusions_tcp_early_ack_enabled)
             .cloned()
-            .unwrap_or_default(),
-        dns_upstreams: opt_field!(template, dns_upstreams)
+            .unwrap_or_else(Settings::default_exclusions_tcp_early_ack_enabled),
+        exclusions_preresolve_enabled: opt_field!(template, exclusions_preresolve_enabled)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_preresolve_enabled),
+        exclusions_preresolve_max_queries: opt_field!(template, exclusions_preresolve_max_queries)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_preresolve_max_queries),
+        exclusions_scannable_ports: opt_field!(template, exclusions_scannable_ports)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_scannable_ports),
+        exclusions: opt_field!(template, exclusions)
             .cloned()
             .unwrap_or_default(),
         endpoint: build_endpoint(opt_field!(template, endpoint)),
@@ -386,7 +399,7 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                 }
                 1 => {
                     // Deep-link URI
-                    let uri = ask_for_input::<String>("Paste deep-link URI", None);
+                    let uri = ask_for_input_raw_line("Paste deep-link URI");
                     return endpoint_from_deeplink(&uri);
                 }
                 _ => unreachable!(),
@@ -493,13 +506,31 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             .as_ref()
             .and_then(|x| empty_to_none(x.custom_sni.clone()))
             .unwrap_or_default(),
+        dns_upstreams: endpoint_config
+            .as_ref()
+            .map(|x| x.dns_upstreams.clone())
+            .or_else(|| {
+                ask_for_input::<String>(
+                    &format!(
+                        "{}\nDelimit by whitespace, leave empty for default.",
+                        Endpoint::doc_dns_upstreams()
+                    ),
+                    opt_field!(template, dns_upstreams)
+                        .map(|v| v.join(" "))
+                        .or(Some("".to_string())),
+                )
+                .split_whitespace()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .into()
+            })
+            .unwrap_or_default(),
         ..Default::default()
     };
 
-    if endpoint_config.is_some() {
-        let config = endpoint_config.as_ref().unwrap();
+    if let Some(config) = &endpoint_config {
         x.hostname = config.hostname.clone();
-        x.certificate = config.certificate.clone().into();
+        x.certificate = empty_to_none(config.certificate.clone());
     } else {
         let (hostname, certificate) = if crate::get_mode() == Mode::NonInteractive {
             (
@@ -562,13 +593,15 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
         parse_cert(x.certificate.clone().unwrap()).expect("Couldn't parse provided certificate");
     }
 
-    x.skip_verification = x.certificate.is_none()
-        && ask_for_agreement_with_default(
-            &format!("{}\n", Endpoint::doc_skip_verification()),
-            opt_field!(template, skip_verification)
-                .cloned()
-                .unwrap_or_default(),
-        );
+    if endpoint_config.is_none() {
+        x.skip_verification = x.certificate.is_none()
+            && ask_for_agreement_with_default(
+                &format!("{}\n", Endpoint::doc_skip_verification()),
+                opt_field!(template, skip_verification)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+    }
 
     x
 }
@@ -648,12 +681,24 @@ fn build_listener(template: Option<&Listener>) -> Listener {
                 mtu_size: opt_field!(template, mtu_size)
                     .cloned()
                     .unwrap_or_else(TunListener::default_mtu_size),
+                tcp_recv_buf_size: opt_field!(template, tcp_recv_buf_size)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_tcp_recv_buf_size),
+                tcp_send_buf_size: opt_field!(template, tcp_send_buf_size)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_tcp_send_buf_size),
                 change_system_dns: ask_for_agreement_with_default(
                     &format!("{}\n", TunListener::doc_change_system_dns()),
                     opt_field!(template, change_system_dns)
                         .cloned()
                         .unwrap_or_else(TunListener::default_change_system_dns),
                 ),
+                device_name: opt_field!(template, device_name)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_device_name),
+                use_existing: opt_field!(template, use_existing)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_use_existing),
             })
         }
         _ => unreachable!(),
@@ -688,6 +733,8 @@ pub struct EndpointConfig {
     anti_dpi: bool,
     #[serde(default)]
     custom_sni: String,
+    #[serde(default)]
+    dns_upstreams: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -781,6 +828,12 @@ impl fmt::Display for EndpointSummary<'_> {
                 .join("\n                     ")
         };
 
+        let dns_upstreams = if ep.dns_upstreams.is_empty() {
+            "(default: AdGuard DNS unfiltered)".to_string()
+        } else {
+            ep.dns_upstreams.join(", ")
+        };
+
         write!(
             f,
             "
@@ -794,7 +847,8 @@ impl fmt::Display for EndpointSummary<'_> {
   Skip verification: {}
   Certificate:       {}
   Protocol:          {}
-  Anti-DPI:          {}",
+  Anti-DPI:          {}
+  DNS upstreams:       {}",
             ep.hostname,
             addresses,
             custom_sni,
@@ -805,6 +859,7 @@ impl fmt::Display for EndpointSummary<'_> {
             cert_display,
             ep.upstream_protocol,
             if ep.anti_dpi { "yes" } else { "no" },
+            dns_upstreams,
         )
     }
 }
@@ -870,24 +925,8 @@ pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
         .map(|der| verify_deeplink_certificates(der))
         .unwrap_or_default();
 
-    let certificate_pem = config.certificate.as_ref().map(|der| {
-        trusttunnel_deeplink::cert::der_to_pem(der)
-            .expect("Failed to convert deep-link certificate from DER to PEM")
-    });
-
-    let endpoint = Endpoint {
-        hostname: config.hostname,
-        addresses: config.addresses.iter().map(|a| a.to_string()).collect(),
-        has_ipv6: config.has_ipv6,
-        username: config.username,
-        password: config.password,
-        client_random: config.client_random_prefix.unwrap_or_default(),
-        skip_verification: config.skip_verification,
-        certificate: certificate_pem,
-        upstream_protocol: config.upstream_protocol.to_string(),
-        anti_dpi: config.anti_dpi,
-        custom_sni: config.custom_sni.unwrap_or_default(),
-    };
+    let endpoint = trusttunnel_settings::endpoint_from_deeplink_config(config)
+        .unwrap_or_else(|e| panic!("Failed to convert deep-link config: {}", e));
 
     display_and_confirm_endpoint(&endpoint, &cert_infos);
 
@@ -897,7 +936,6 @@ pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
     use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
 
     #[test]
@@ -906,8 +944,8 @@ mod tests {
         let config = DeepLinkConfig {
             hostname: "test.host".to_string(),
             addresses: vec![
-                "10.0.0.1:443".parse::<SocketAddr>().unwrap(),
-                "[::1]:8443".parse::<SocketAddr>().unwrap(),
+                "10.0.0.1:443".parse().unwrap(),
+                "[::1]:8443".parse().unwrap(),
             ],
             username: "user1".to_string(),
             password: "pass1".to_string(),
@@ -918,6 +956,8 @@ mod tests {
             certificate: None,
             upstream_protocol: Protocol::Http3,
             anti_dpi: true,
+            dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
+            name: Some("Example VPN".to_string()),
         };
 
         let uri = trusttunnel_deeplink::encode(&config).unwrap();

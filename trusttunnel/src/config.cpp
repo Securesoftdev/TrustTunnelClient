@@ -1,3 +1,4 @@
+#include <common/logger.h>
 #include <cstdio>
 #include <functional>
 #include <optional>
@@ -8,6 +9,7 @@
 #include <unordered_map>
 
 #include <magic_enum/magic_enum.hpp>
+#include <openssl/err.h>
 #include <openssl/pem.h>
 
 #include "net/tls.h"
@@ -22,7 +24,7 @@
 
 using namespace ag; // NOLINT(google-build-using-namespace)
 
-static constexpr uint32_t DEFAULT_MTU = 1280;
+static constexpr uint32_t DEFAULT_MTU = 1350;
 static const Logger g_logger("TRUSTTUNNEL_CLIENT"); // NOLINT(readability-identifier-naming)
 
 static const std::unordered_map<std::string_view, VpnUpstreamProtocol> UPSTREAM_PROTO_MAP = {
@@ -43,22 +45,39 @@ static std::string streamable_to_string(const T &obj) {
     return stream.str();
 }
 
-static UniquePtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view pem_certificate) {
-    UniquePtr<BIO, &BIO_free> bio{BIO_new_mem_buf(pem_certificate.data(), (long) pem_certificate.size())};
-
-    UniquePtr<X509, &X509_free> cert{PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr)};
-    if (cert == nullptr) {
-        warnlog(g_logger, "Failed to parse certificate, ensure it is in PEM format");
+static UniquePtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view pem_bundle) {
+    UniquePtr<BIO, &BIO_free> bio{BIO_new_mem_buf(pem_bundle.data(), static_cast<int>(pem_bundle.size()))};
+    if (!bio) {
         return nullptr;
     }
 
-    UniquePtr<X509_STORE, &X509_STORE_free> store{tls_create_ca_store()};
-    if (store == nullptr) {
+    UniquePtr<X509_STORE, &X509_STORE_free> store{X509_STORE_new()};
+    if (!store) {
         warnlog(g_logger, "Failed to create CA store");
         return nullptr;
     }
 
-    X509_STORE_add_cert(store.get(), cert.get());
+    bool any_loaded = false;
+    for (;;) {
+        UniquePtr<X509, &X509_free> cert{PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr)};
+        if (!cert) {
+            if (auto err = ERR_peek_last_error(); ERR_GET_REASON(err) != PEM_R_NO_START_LINE) {
+                warnlog(g_logger, "Failed to parse certificate, ensure it is in PEM format");
+            }
+            ERR_clear_error();
+            break;
+        }
+
+        if (X509_STORE_add_cert(store.get(), cert.get()) != 1) {
+            warnlog(g_logger, "Failed to add to the CA store");
+        }
+        any_loaded = true;
+    }
+
+    if (!any_loaded) {
+        warnlog(g_logger, "Failed to load certificate");
+        return nullptr;
+    }
 
     return store;
 }
@@ -113,7 +132,7 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
         location.upstream_protocol = UPSTREAM_PROTO_MAP.at(*upstream_protocol);
     } else {
         errlog(g_logger, "Unexpected endpoint upstream protocol value: {}",
-                streamable_to_string(config["upstream_protocol"].node()));
+                streamable_to_string(config["upstream_protocol"]));
         return std::nullopt;
     }
 
@@ -129,6 +148,17 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
         } else {
             location.client_random = *client_random;
         }
+    }
+
+    if (const auto *x = config["dns_upstreams"].as_array()) {
+        std::vector<std::string> dns_upstreams;
+        dns_upstreams.reserve(x->size());
+        for (const auto &a : *x) {
+            if (std::optional addr = a.value<std::string_view>(); addr.has_value() && !addr->empty()) {
+                dns_upstreams.emplace_back(addr.value());
+            }
+        }
+        location.dns_upstreams = std::move(dns_upstreams);
     }
 
     return location;
@@ -165,10 +195,22 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
     return std::nullopt;
 #endif
 
+    bool use_existing = (*tun_config)["use_existing"].value_or<bool>(false);
+    std::string device_name = (*tun_config)["device_name"].value_or<std::string>({});
+
+    if (use_existing && device_name.empty()) {
+        errlog(g_logger, "listener.tun: use_existing = true requires device_name to be set");
+        return std::nullopt;
+    }
+
     TrustTunnelConfig::TunListener tun = {
+            .device_name = std::move(device_name),
             .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
+            .tcp_recv_buf_size = (*tun_config)["tcp_recv_buf_size"].value<uint32_t>().value_or(0),
+            .tcp_send_buf_size = (*tun_config)["tcp_send_buf_size"].value<uint32_t>().value_or(0),
             .bound_if = std::move(bound_if),
             .change_system_dns = (*tun_config)["change_system_dns"].value_or<bool>(true),
+            .use_existing = use_existing,
             .netns = (*tun_config)["netns"].value<std::string>(),
     };
 
@@ -230,7 +272,7 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
     if (auto mode = config["vpn_mode"].value<std::string_view>(); mode && VPN_MODE_MAP.contains(*mode)) {
         result.mode = VPN_MODE_MAP.at(*mode);
     } else {
-        errlog(g_logger, "Unexpected VPN mode: {}", streamable_to_string(config["vpn_mode"].node()));
+        errlog(g_logger, "Unexpected VPN mode: {}", streamable_to_string(config["vpn_mode"]));
         return std::nullopt;
     }
 
@@ -248,6 +290,14 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
     }
     result.post_quantum_group_enabled =
             config["post_quantum_group_enabled"].value_or(default_settings->post_quantum_group_enabled);
+    result.exclusions_tcp_early_ack_enabled =
+            config["exclusions_tcp_early_ack_enabled"].value_or(default_settings->exclusions_tcp_early_ack_enabled);
+    result.exclusions_preresolve_enabled =
+            config["exclusions_preresolve_enabled"].value_or(default_settings->exclusions_preresolve_enabled);
+    result.exclusions_preresolve_max_queries = config["exclusions_preresolve_max_queries"].value_or<uint32_t>(
+            uint32_t{default_settings->exclusions_preresolve_max_queries});
+    result.exclusions_scannable_ports =
+            config["exclusions_scannable_ports"].value_or<std::string>(default_settings->exclusions_scannable_ports);
 
     result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
 
@@ -261,17 +311,17 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
     }
 
     if (const auto *x = config["dns_upstreams"].as_array(); x != nullptr) {
-        result.dns_upstreams.reserve(x->size());
+        result.legacy_dns_upstreams.reserve(x->size());
         for (const auto &a : *x) {
             if (std::optional addr = a.value<std::string_view>(); addr.has_value() && !addr->empty()) {
-                result.dns_upstreams.emplace_back(addr.value());
+                result.legacy_dns_upstreams.emplace_back(addr.value());
             }
         }
     }
 
     const toml::table *endpoint_config = config["endpoint"].as_table();
     if (endpoint_config == nullptr) {
-        errlog(g_logger, "Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"].node()));
+        errlog(g_logger, "Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"]));
         return std::nullopt;
     }
     if (auto endpoint = build_endpoint(*endpoint_config)) {
@@ -283,7 +333,7 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
 
     const toml::table *listener_config = config["listener"].as_table();
     if (listener_config == nullptr) {
-        errlog(g_logger, "Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"].node()));
+        errlog(g_logger, "Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"]));
         return std::nullopt;
     }
     if (auto listener = build_listener_config(*listener_config)) {
