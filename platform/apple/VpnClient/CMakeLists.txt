@@ -41,14 +41,22 @@ add_subdirectory(${ROOT_DIR} ${CMAKE_BINARY_DIR}/trusttunnel)
 add_library(${PROJECT_NAME} SHARED
     VpnClient.h
     VpnClient.mm
+    Logger.h
+    Logger.mm
+    PersistentRingBuffer.h
+    PersistentRingBuffer.mm
+    DeepLink.h
+    DeepLink.mm
     module.modulemap
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     FRAMEWORK TRUE
     FRAMEWORK_VERSION A
-    VERSION 1.0.8
-    PUBLIC_HEADER VpnClient.h
+    # Resolved by cmake/version.cmake (included via the add_subdirectory above).
+    # The Mach-O VERSION must be numeric, so use the core X.Y.Z.
+    VERSION ${TT_CLIENT_VERSION_CORE}
+    PUBLIC_HEADER "VpnClient.h;Logger.h;DeepLink.h;PersistentRingBuffer.h"
     MACOSX_FRAMEWORK_INFO_PLIST "${INFOPLIST_FILE}"
     MACOSX_FRAMEWORK_IDENTIFIER com.adguard.TrustTunnel.VpnClientFramework
     INSTALL_NAME_DIR "@rpath"
@@ -58,8 +66,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 target_link_options(${PROJECT_NAME} PRIVATE "-ObjC")
 
-target_link_libraries(${PROJECT_NAME} vpnlibs_trusttunnel)
-
+target_link_libraries(${PROJECT_NAME} vpnlibs_trusttunnel trusttunnel_deeplink_ffi)
 target_link_libraries(${PROJECT_NAME} "-framework Foundation" "-framework NetworkExtension")
 
 set_property(SOURCE module.modulemap PROPERTY MACOSX_PACKAGE_LOCATION "Modules")

@@ -7,7 +7,7 @@
 #include "net/os_tunnel.h"
 #include "vpn/utils.h"
 
-#include "wfp_firewall.h"
+#include "common/wfp_firewall.h"
 
 namespace ag {
 
@@ -37,7 +37,7 @@ private:
     void init_win_settings(const VpnWinTunnelSettings *win_settings) {
         m_win_settings.reset(vpn_win_tunnel_settings_clone(win_settings));
     }
-    bool setup_mtu();
+    bool setup_interface();
     bool setup_dns();
     bool setup_routes(std::span<const CidrRange> v4, std::span<const CidrRange> v6);
     DeclPtr<VpnWinTunnelSettings, &vpn_win_tunnel_settings_destroy> m_win_settings;
@@ -47,7 +47,7 @@ private:
     HANDLE m_wintun_quit_event{nullptr};
     std::unique_ptr<std::thread> m_recv_thread_handle{};
 
-    WfpFirewall m_firewall;
+    WfpFirewall m_firewall{L"AdGuard VPN"};
 };
 
 } // namespace ag

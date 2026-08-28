@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     cmake \
     ninja-build \
     clang \
+    clang-tools \
     libc++-dev \
     libc++abi-dev \
     python3 \
@@ -14,17 +15,12 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     lldb \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.85 -y
 ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Install Go
-RUN curl -LO https://go.dev/dl/go1.22.0.linux-arm64.tar.gz \
-    && tar -C /usr/local -xzf go1.22.0.linux-arm64.tar.gz \
-    && rm go1.22.0.linux-arm64.tar.gz
-ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install Conan and Python dependencies
 RUN python3 -m pip install conan --break-system-packages

@@ -2,6 +2,8 @@
 #include <cassert>
 #include <chrono>
 
+#include <openssl/rand.h>
+
 #include <event2/util.h>
 
 #include "direct_upstream.h"
@@ -258,8 +260,23 @@ VpnError VpnClient::init(const VpnSettings *settings) {
             .relative_priority = settings->qos_settings.relative_priority};
 #endif // __APPLE__ && TARGET_OS_IPHONE
 
+    UniquePtr<VpnDefaultSettings, &vpn_free_default_settings> default_settings{vpn_get_default_settings()};
+
     this->tunnel->udp_close_wait_hostname_cache = g_udp_close_wait_hostname_cache;
     this->kill_switch_on = settings->killswitch_enabled;
+    this->exclusions_tcp_early_ack_enabled = settings->exclusions_tcp_early_ack_enabled;
+    this->exclusions_preresolve_enabled = settings->exclusions_preresolve_enabled;
+    this->exclusions_preresolve_max_queries = settings->exclusions_preresolve_max_queries == 0
+            ? default_settings->exclusions_preresolve_max_queries
+            : settings->exclusions_preresolve_max_queries;
+    const char *scannable_ports_str = settings->exclusions_scannable_ports != nullptr
+            ? settings->exclusions_scannable_ports
+            : default_settings->exclusions_scannable_ports;
+    std::optional<PortRangeSet> parsed_scannable_ports = ag::parse_scannable_ports(scannable_ports_str);
+    if (!parsed_scannable_ports.has_value()) {
+        parsed_scannable_ports = ag::parse_scannable_ports(default_settings->exclusions_scannable_ports);
+    }
+    this->exclusions_scannable_ports = parsed_scannable_ports.value();
     update_exclusions(settings->mode, {settings->exclusions.data, settings->exclusions.size});
 
     if (settings->tmp_files_base_path != nullptr) {
@@ -364,12 +381,23 @@ static std::unique_ptr<ServerUpstream> make_upstream(const VpnUpstreamProtocolCo
 }
 
 static VpnError start_dns_proxy_listener(VpnClient *self) {
-    VpnSocksListenerConfig dns_listener_config{};
+    static constexpr size_t RANDOM_BYTES_LENGTH = 16;
+    uint8_t random_bytes[RANDOM_BYTES_LENGTH];
+    if (RAND_bytes(random_bytes, RANDOM_BYTES_LENGTH) != 1) {
+        return {VPN_EC_ERROR, "Failed to generate DNS proxy listener password"};
+    }
+    std::string password = encode_to_hex({random_bytes, RANDOM_BYTES_LENGTH});
+
+    VpnSocksListenerConfig dns_listener_config{
+            .username = vpn_client::DNS_PROXY_LISTENER_USERNAME.data(),
+            .password = password.c_str(),
+    };
     self->dns_proxy_listener = std::make_unique<SocksListener>(&dns_listener_config);
     if (self->dns_proxy_listener->init(self, {&dns_proxy_listener_handler, self})
             != ClientListener::InitResult::SUCCESS) {
         return {VPN_EC_INVALID_SETTINGS, "Failed to initialize DNS proxy listener"};
     }
+    self->dns_proxy_listener_password = std::move(password);
     if (!self->tunnel->update_dns_handler_parameters()) {
         return {VPN_EC_ERROR, "Failed to initialize the DNS handler"};
     }
@@ -443,6 +471,7 @@ VpnError VpnClient::listen(std::unique_ptr<ClientListener> listener, const VpnLi
     this->listener_config = vpn_listener_config_clone(config);
 
     VpnError error = {.code = VPN_EC_ERROR};
+    bool need_update_dns_handler_params = true;
 
     if (this->listener_config.timeout_ms == 0) {
         this->listener_config.timeout_ms = VPN_DEFAULT_TCP_TIMEOUT_MS;
@@ -476,7 +505,13 @@ VpnError VpnClient::listen(std::unique_ptr<ClientListener> listener, const VpnLi
                 error.text = "Failed to start DNS upstream health check";
                 goto fail;
             }
+            need_update_dns_handler_params = false;
         }
+    }
+
+    if (need_update_dns_handler_params && !this->tunnel->update_dns_handler_parameters()) {
+        error.text = "Failed to initialize the DNS handler";
+        goto fail;
     }
 
     log_client(this, dbg, "Done");

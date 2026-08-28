@@ -73,6 +73,11 @@ static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Par
                 .protocol = dns::OutboundProxyProtocol::SOCKS5_UDP,
                 .address = parameters.socks_listener_address->host_str(/*ipv6_brackets=*/true),
                 .port = parameters.socks_listener_address->port(),
+                .auth_info =
+                        dns::OutboundProxyAuthInfo{
+                                .username = parameters.socks_listener_username,
+                                .password = parameters.socks_listener_password,
+                        },
         }};
     }
 
@@ -101,6 +106,13 @@ bool DnsProxyAccessor::start() {
         log_accessor(this, err, "Already started");
         return false;
     }
+
+#ifndef __ANDROID__
+    if (vpn_network_manager_get_tunnel_active() && vpn_network_manager_get_outbound_interface() == 0) {
+        log_accessor(this, err, "Cannot start DNS proxy without an outbound interface while tunnel is active");
+        return false;
+    }
+#endif // __ANDROID__
 
     m_dns_proxy = std::make_unique<dns::DnsProxy>();
     auto [ok, msg] = m_dns_proxy->init(make_dns_proxy_settings(m_parameters),

@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "common/logger.h"
+#include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/dns_utils.h"
 #include "vpn/internal/vpn_client.h"
@@ -132,7 +133,7 @@ void ag::DnsHandlerServerUpstreamBase::close_session() {
 
 uint64_t ag::DnsHandlerServerUpstreamBase::open_connection(
         const TunnelAddressPair *addr, int proto, std::string_view app_name) {
-    if (addr->dstport() != dns_utils::PLAIN_DNS_PORT_NUMBER) {
+    if (addr->dstport() != utils::PLAIN_DNS_PORT_NUMBER) {
         assert(0);
         return NON_ID;
     }
@@ -302,7 +303,7 @@ void ag::DnsHandlerClientListenerBase::deinit() {
 }
 
 uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
-        const DnsHandlerServerUpstreamBase::ConnectionInfo &info, U8View message) {
+        const DnsHandlerServerUpstreamBase::ConnectionInfo &info, U8View message, bool force_bypass) {
     auto id_it = m_conn_id_by_upstream_conn_id.find(info.upstream_conn_id);
     if (id_it == m_conn_id_by_upstream_conn_id.end()) {
         uint64_t listener_conn_id = vpn->listener_conn_id_generator.get();
@@ -313,11 +314,17 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
         assert_use(placed);
         m_conn_id_by_upstream_conn_id.emplace(info.upstream_conn_id, listener_conn_id);
 
+        uint32_t flags = 0;
+        if (force_bypass) {
+            flags |= CCRF_DNS_HANDLER_BYPASS;
+        }
+
         ClientConnectRequest event{
                 .id = listener_conn_id,
                 .protocol = info.proto,
                 .src = &info.addrs->src,
                 .dst = &info.addrs->dst,
+                .flags = flags,
         };
         this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
 
@@ -615,6 +622,8 @@ bool ag::DnsHandler::start_dns_proxy() {
     m_dns_proxy = std::make_unique<DnsProxyAccessor>(
             DnsProxyAccessor::Parameters{.upstreams = std::move(m_parameters.dns_upstreams),
                     .socks_listener_address = m_parameters.dns_proxy_listener_address,
+                    .socks_listener_username = m_parameters.dns_proxy_listener_username,
+                    .socks_listener_password = m_parameters.dns_proxy_listener_password,
                     .cert_verify_handler = m_parameters.cert_verify_handler,
 #if defined(__APPLE__) && TARGET_OS_IPHONE
                     .qos_settings = {.qos_class = ServerUpstream::vpn->parameters.qos_settings.qos_class,
@@ -623,6 +632,7 @@ bool ag::DnsHandler::start_dns_proxy() {
             });
 
     if (!m_dns_proxy->start()) {
+        m_dns_proxy.reset();
         log_handler(this, err, "Failed to start DNS proxy");
         return false;
     }
@@ -642,6 +652,7 @@ bool ag::DnsHandler::start_dns_proxy() {
     });
 
     if (!m_client->init()) {
+        m_client.reset();
         log_handler(this, err, "Failed to initialize DNS client");
         return false;
     }
@@ -649,6 +660,8 @@ bool ag::DnsHandler::start_dns_proxy() {
     return true;
 }
 
+// `start_system_dns_proxy()` MUST leave the client in a consistent/operable state on failure
+// (with possibly broken DNS). Next start might succeed and recover DNS functionality.
 bool ag::DnsHandler::start_system_dns_proxy() {
     SystemDnsServers servers = dns_manager_get_system_servers(ServerUpstream::vpn->parameters.network_manager->dns);
 
@@ -724,6 +737,7 @@ bool ag::DnsHandler::start_system_dns_proxy() {
         });
 
         if (!proxy->start()) {
+            proxy.reset();
             log_handler(this, err, "Failed to start system{} DNS proxy", servers == &servers_v6 ? " (IPv6)" : "");
             return false;
         }
@@ -745,6 +759,7 @@ bool ag::DnsHandler::start_system_dns_proxy() {
         });
 
         if (!client->init()) {
+            client.reset();
             log_handler(this, err, "Failed to initialize DNS client");
             return false;
         }
@@ -792,6 +807,7 @@ void ag::DnsHandler::client_handler(std::unordered_map<uint16_t, uint64_t> &map,
     }
 }
 
+// Ignore proxy start error on DNS/network change: we might succeed and recover on next change.
 void ag::DnsHandler::on_dns_change(void *arg) {
     auto *self = (DnsHandler *) arg;
     log_handler(self, info, "Restarting system DNS proxy");
@@ -827,8 +843,8 @@ void ag::DnsHandler::send_request(bool system_proxy, bool ipv6, bool tcp, uint64
     assert_use(placed);
 }
 
-void ag::DnsHandler::send_request_as_listener(const ConnectionInfo &info, U8View message) {
-    uint64_t listener_conn_id = send_as_listener(info, message);
+void ag::DnsHandler::send_request_as_listener(const ConnectionInfo &info, U8View message, bool force_bypass) {
+    uint64_t listener_conn_id = send_as_listener(info, message, force_bypass);
     log_handler(this, dbg, "[L:{}] {}", listener_conn_id, info);
 }
 
@@ -867,7 +883,7 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
     // Note: now obsolete inverse queries (RFC 1035) will result in `dns_utils::InapplicablePacket`.
     // The DNS proxy doesn't support them.
     if (!std::holds_alternative<dns_utils::DecodedRequest>(decode_result)) {
-        send_request_as_listener(info, message);
+        send_request_as_listener(info, message, /*bypass*/ false);
         return;
     }
 
@@ -878,11 +894,22 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
 
     if (!ServerUpstream::vpn->tunnel->endpoint_upstream_connected) {
         if (!ServerUpstream::vpn->kill_switch_on) {
+            if (m_parameters.alt_exclusions_route) {
+                log_handler(this, dbg, "{} qname: {} -> direct upstream (not connected)", info, request.name);
+                send_request_as_listener(info, message, /*bypass*/ true);
+                return;
+            }
             log_handler(this, dbg, "{} qname: {} -> system DNS proxy (not connected)", info, request.name);
             send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
             return;
         }
         if (vpn_network_manager_check_app_request_domain(request.name.c_str())) {
+            if (m_parameters.alt_exclusions_route) {
+                log_handler(
+                        this, dbg, "{} qname: {} -> direct upstream (not connected, app request)", info, request.name);
+                send_request_as_listener(info, message, /*bypass*/ true);
+                return;
+            }
             log_handler(this, dbg, "{} qname: {} -> system DNS proxy (not connected, app request)", info, request.name);
             send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
             return;
@@ -898,12 +925,14 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
     if (included && m_client) {
         log_handler(this, dbg, "{} qname: {} -> DNS proxy", info, request.name);
         send_request(/*system proxy*/ false, ipv6, tcp, info.upstream_conn_id, message);
-    } else if (!included) {
+    } else if (!included && !m_parameters.alt_exclusions_route) {
         log_handler(this, dbg, "{} qname: {} -> system DNS proxy", info, request.name);
         send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
     } else {
-        log_handler(this, dbg, "{} qname: {} -> {}", info, request.name, tunnel_addr_to_str(&info.addrs->dst));
-        send_request_as_listener(info, message);
+        bool bypass = !included;
+        log_handler(this, dbg, "{} qname: {} -> {}{}", info, request.name, tunnel_addr_to_str(&info.addrs->dst),
+                bypass ? " (direct upstream)" : "");
+        send_request_as_listener(info, message, bypass);
     }
 }
 
