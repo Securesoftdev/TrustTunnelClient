@@ -21,7 +21,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import yaml
 
 work_dir = os.path.dirname(os.path.realpath(__file__))
 project_dir = os.path.dirname(work_dir)
@@ -110,15 +109,19 @@ def run_shell_script(script_path):
         subprocess.run([script_path], check=True, cwd=os.path.dirname(os.path.dirname(script_path)))
 
 
-def export_dns_libs(repo_dir, version):
+def checkout_conan_recipe_revision(repo_dir, version):
+    revision = find_legacy_conandata_revision(repo_dir, version)
+    if revision is not None:
+        subprocess.run(["git", "-C", repo_dir, "checkout", revision], check=True)
+    else:
+        subprocess.run(["git", "-C", repo_dir, "checkout", revision_for_described_version(version)], check=True)
+
+
+def export_conan_dependency(repo_dir, version):
     python_export = os.path.join(repo_dir, "scripts", "export_conan.py")
     if not os.path.exists(python_export):
-        revision = find_legacy_conandata_revision(repo_dir, version)
-        if revision is not None:
-            subprocess.run(["git", "-C", repo_dir, "checkout", revision], check=True)
-            python_export = os.path.join(repo_dir, "scripts", "export_conan.py")
-        else:
-            subprocess.run(["git", "-C", repo_dir, "checkout", revision_for_described_version(version)], check=True)
+        checkout_conan_recipe_revision(repo_dir, version)
+        python_export = os.path.join(repo_dir, "scripts", "export_conan.py")
 
     if os.path.exists(python_export):
         subprocess.run(["python3", python_export, version], check=True)
@@ -141,7 +144,7 @@ remove_dir_if_exists(dns_libs_dir)
 subprocess.run(["git", "clone", dns_libs_url, dns_libs_dir], check=True)
 os.chdir(dns_libs_dir)
 
-export_dns_libs(dns_libs_dir, dns_libs_version)
+export_conan_dependency(dns_libs_dir, dns_libs_version)
 append_native_libs_versions_from_conanfile(os.path.join(dns_libs_dir, "conanfile.py"))
 # Not leaving directory causes used-by-another-process error
 os.chdir("..")
@@ -153,17 +156,9 @@ remove_dir_if_exists(nlc_dir)
 subprocess.run(["git", "clone", nlc_url, nlc_dir], check=True)
 os.chdir(nlc_dir)
 
-# Reduce the chances of missing a necessary dependency exported with NLC
-# by exporting all recipes from all versions of NLC, starting with the minimum
-# necessary.
-min_nlc_version = min(nlc_versions)
-with open("conandata.yml", "r") as file:
-    items = yaml.safe_load(file)["commit_hash"]
-
 for v in nlc_versions: # [k for k in items.keys() if k >= min_nlc_version]:
-    subprocess.run(["git", "checkout", "master"], check=True)
     try:
-        subprocess.run(["python3", os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
+        export_conan_dependency(nlc_dir, v)
     except:
         if v in nlc_versions:
             raise
