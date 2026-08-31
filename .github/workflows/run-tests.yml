@@ -80,6 +80,7 @@ jobs:
           ./scripts/bootstrap_conan_deps.py
 
       - name: Lint
+        timeout-minutes: 20
         run: |
           make lint-cpp
 
@@ -106,10 +107,12 @@ jobs:
           key: ${{ runner.os }}-conan2-v4-${{ hashFiles('conanfile.py') }}
 
       - name: Build tests
+        timeout-minutes: 25
         run: |
           cmake --build $BUILD_DIR --target tests
 
       - name: Run tests
+        timeout-minutes: 20
         run: |
           cd $BUILD_DIR && \
           ctest --progress --timeout 180 --no-compress-output --output-on-failure
@@ -192,10 +195,12 @@ jobs:
           key: ${{ runner.os }}-conan2-v4-1-${{ hashFiles('conanfile.py') }}
 
       - name: Build tests
+        timeout-minutes: 25
         run: |
           cmake --build $BUILD_DIR --target tests
 
       - name: Run tests
+        timeout-minutes: 20
         run: |
           # Needed to avoid a sanitizer error (likely to be false positive)
           # inside gtest
@@ -280,12 +285,14 @@ jobs:
           key: ${{ runner.os }}-conan2-v4-${{ hashFiles('conanfile.py') }}
 
       - name: Build tests
+        timeout-minutes: 35
         run: |
           cmake --build ${{ env.BUILD_DIR }} `
             --target tests `
             --config RelWithDebInfo
 
       - name: Run tests
+        timeout-minutes: 25
         run: |
           cd ${{ env.BUILD_DIR }} && `
           ctest --progress --timeout 180 --no-compress-output --output-on-failure
