@@ -112,7 +112,7 @@ jobs:
       - name: Run tests
         run: |
           cd $BUILD_DIR && \
-          ctest --no-compress-output --output-on-failure
+          ctest --progress --timeout 180 --no-compress-output --output-on-failure
 
 # -------------------------------------------------------------
 
@@ -202,7 +202,7 @@ jobs:
           export ASAN_OPTIONS=detect_container_overflow=0
 
           cd $BUILD_DIR && \
-          ctest --no-compress-output --output-on-failure
+          ctest --progress --timeout 180 --no-compress-output --output-on-failure
 
 # -------------------------------------------------------------
 
@@ -288,4 +288,4 @@ jobs:
       - name: Run tests
         run: |
           cd ${{ env.BUILD_DIR }} && `
-          ctest --no-compress-output --output-on-failure
+          ctest --progress --timeout 180 --no-compress-output --output-on-failure
