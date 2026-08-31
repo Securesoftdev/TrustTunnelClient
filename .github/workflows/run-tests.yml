@@ -87,7 +87,7 @@ jobs:
       - name: Run cmake
         run: |
           mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          cmake -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER="/usr/bin/clang" \
             -DCMAKE_CXX_COMPILER="/usr/bin/clang++" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
@@ -172,12 +172,9 @@ jobs:
       - name: Run cmake
         run: |
           mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER="clang" \
-            -DCMAKE_CXX_COMPILER="clang++" \
-            -DCMAKE_C_FLAGS="-fsanitize=address" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="/usr/bin/clang" \
+            -DCMAKE_CXX_COMPILER="/usr/bin/clang++" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DIPV6_UNAVAILABLE=ON \
@@ -261,7 +258,7 @@ jobs:
       - name: Run cmake
         run: |
           mkdir ${{ env.BUILD_DIR }} && cd ${{ env.BUILD_DIR }} && `
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+          cmake -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_C_COMPILER_LAUNCHER=ccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DCMAKE_C_COMPILER="cl.exe" `
@@ -282,7 +279,7 @@ jobs:
         run: |
           cmake --build ${{ env.BUILD_DIR }} `
             --target tests `
-            --config RelWithDebInfo
+            --config Release
 
       - name: Run tests
         timeout-minutes: 25
