@@ -123,3 +123,10 @@ add_unit_test(test_locations_pinger_runner "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}
 add_unit_test(test_dns_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_tls_serialize "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_net_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+
+set_tests_properties(
+        test_ping
+        test_locations_pinger
+        test_locations_pinger_runner
+        PROPERTIES LABELS network
+)

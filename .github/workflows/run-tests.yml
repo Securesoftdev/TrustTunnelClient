@@ -112,7 +112,7 @@ jobs:
         timeout-minutes: 20
         run: |
           cd $BUILD_DIR && \
-          ctest --progress --timeout 180 --no-compress-output --output-on-failure
+          ctest -LE network --progress --timeout 180 --no-compress-output --output-on-failure
 
 # -------------------------------------------------------------
 
@@ -197,7 +197,7 @@ jobs:
         timeout-minutes: 20
         run: |
           cd $BUILD_DIR && \
-          ctest --progress --timeout 180 --no-compress-output --output-on-failure
+          ctest -LE network --progress --timeout 180 --no-compress-output --output-on-failure
 
 # -------------------------------------------------------------
 
@@ -285,4 +285,4 @@ jobs:
         timeout-minutes: 25
         run: |
           cd ${{ env.BUILD_DIR }} && `
-          ctest --progress --timeout 180 --no-compress-output --output-on-failure
+          ctest -LE network --progress --timeout 180 --no-compress-output --output-on-failure
