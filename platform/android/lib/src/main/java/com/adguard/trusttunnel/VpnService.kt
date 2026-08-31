@@ -235,7 +235,27 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 .setMtu(tunConfig.mtuSize.toInt())
                 .addAddress("172.20.2.13", 32)
                 .addAddress("fdfd:29::2", 64)
-                .addDisallowedApplication(applicationContext.packageName)
+            val allowedApplications = normalizeApplicationIds(tunConfig.allowedApplications)
+            if (allowedApplications.isEmpty()) {
+                builder.addDisallowedApplication(applicationContext.packageName)
+                normalizeApplicationIds(tunConfig.disallowedApplications)
+                    .filter { it != applicationContext.packageName }
+                    .forEach { packageName ->
+                        try {
+                            builder.addDisallowedApplication(packageName)
+                        } catch (e: Exception) {
+                            LOG.warn("Failed to add disallowed application '$packageName'", e)
+                        }
+                    }
+            } else {
+                allowedApplications.forEach { packageName ->
+                    try {
+                        builder.addAllowedApplication(packageName)
+                    } catch (e: Exception) {
+                        LOG.warn("Failed to add allowed application '$packageName'", e)
+                    }
+                }
+            }
             val dnsServers = if (config.dnsUpstreams.isEmpty()) {
                 ADGUARD_DNS_SERVERS
             } else {
@@ -262,6 +282,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             LOG.error("Error while building the TUN interface", e)
             return null
         }
+    }
+
+    private fun normalizeApplicationIds(values: List<String>): List<String> {
+        return values
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
     }
 
     /**
