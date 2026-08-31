@@ -12,6 +12,10 @@ class Tun (
     val includedRoutes: List<String>,
     @SerialName("excluded_routes")
     val excludedRoutes: List<String>,
+    @SerialName("disallowed_applications")
+    val disallowedApplications: List<String> = emptyList(),
+    @SerialName("allowed_applications")
+    val allowedApplications: List<String> = emptyList(),
     @SerialName("mtu_size")
     val mtuSize: Long
 )

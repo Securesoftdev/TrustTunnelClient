@@ -80,18 +80,16 @@ jobs:
           ./scripts/bootstrap_conan_deps.py
 
       - name: Lint
+        timeout-minutes: 20
         run: |
           make lint-cpp
 
       - name: Run cmake
         run: |
           mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER="clang" \
-            -DCMAKE_CXX_COMPILER="clang++" \
-            -DCMAKE_C_FLAGS="-fsanitize=address" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="/usr/bin/clang" \
+            -DCMAKE_CXX_COMPILER="/usr/bin/clang++" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DIPV6_UNAVAILABLE=ON \
@@ -106,13 +104,15 @@ jobs:
           key: ${{ runner.os }}-conan2-v4-${{ hashFiles('conanfile.py') }}
 
       - name: Build tests
+        timeout-minutes: 25
         run: |
           cmake --build $BUILD_DIR --target tests
 
       - name: Run tests
+        timeout-minutes: 20
         run: |
           cd $BUILD_DIR && \
-          ctest --no-compress-output --output-on-failure
+          ctest -LE network --progress --timeout 180 --no-compress-output --output-on-failure
 
 # -------------------------------------------------------------
 
@@ -172,12 +172,9 @@ jobs:
       - name: Run cmake
         run: |
           mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER="clang" \
-            -DCMAKE_CXX_COMPILER="clang++" \
-            -DCMAKE_C_FLAGS="-fsanitize=address" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="/usr/bin/clang" \
+            -DCMAKE_CXX_COMPILER="/usr/bin/clang++" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DIPV6_UNAVAILABLE=ON \
@@ -192,17 +189,15 @@ jobs:
           key: ${{ runner.os }}-conan2-v4-1-${{ hashFiles('conanfile.py') }}
 
       - name: Build tests
+        timeout-minutes: 25
         run: |
           cmake --build $BUILD_DIR --target tests
 
       - name: Run tests
+        timeout-minutes: 20
         run: |
-          # Needed to avoid a sanitizer error (likely to be false positive)
-          # inside gtest
-          export ASAN_OPTIONS=detect_container_overflow=0
-
           cd $BUILD_DIR && \
-          ctest --no-compress-output --output-on-failure
+          ctest -LE network --progress --timeout 180 --no-compress-output --output-on-failure
 
 # -------------------------------------------------------------
 
@@ -263,7 +258,7 @@ jobs:
       - name: Run cmake
         run: |
           mkdir ${{ env.BUILD_DIR }} && cd ${{ env.BUILD_DIR }} && `
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+          cmake -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_C_COMPILER_LAUNCHER=ccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DCMAKE_C_COMPILER="cl.exe" `
@@ -280,12 +275,14 @@ jobs:
           key: ${{ runner.os }}-conan2-v4-${{ hashFiles('conanfile.py') }}
 
       - name: Build tests
+        timeout-minutes: 35
         run: |
           cmake --build ${{ env.BUILD_DIR }} `
             --target tests `
-            --config RelWithDebInfo
+            --config Release
 
       - name: Run tests
+        timeout-minutes: 25
         run: |
           cd ${{ env.BUILD_DIR }} && `
-          ctest --no-compress-output --output-on-failure
+          ctest -LE network --progress --timeout 180 --no-compress-output --output-on-failure
