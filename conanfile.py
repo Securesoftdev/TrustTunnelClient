@@ -16,10 +16,12 @@ class VpnLibsConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     options = {
         "with_ghc": [True, False],
+        "with_http3": [True, False],
         "sanitize": [None, "ANY"],
     }
     default_options = {
         "with_ghc": False,
+        "with_http3": False,
         "sanitize": None,  # None means none
     }
     # A list of paths to patches. The paths must be relative to the conanfile directory.
@@ -44,11 +46,13 @@ class VpnLibsConan(ConanFile):
         self.requires("tomlplusplus/3.3.0")
         self.requires("zlib/1.3.1", transitive_headers=True)
 
-        if "mips" not in str(self.settings.arch):
+        if self.options.with_http3 and "mips" not in str(self.settings.arch):
             self.requires("quiche/0.17.1@adguard/oss", transitive_headers=True)
             self.requires("openssl/boring-2024-09-13@adguard/oss", transitive_headers=True, force=True)
-        else:
+        elif "mips" in str(self.settings.arch):
             self.requires("openssl/3.1.5-quic1@adguard/oss", transitive_headers=True, force=True)
+        else:
+            self.requires("openssl/boring-2024-09-13@adguard/oss", transitive_headers=True, force=True)
 
     def build_requirements(self):
         self.test_requires("gtest/1.14.0")
