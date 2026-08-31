@@ -14,7 +14,9 @@
 
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
+#ifndef DISABLE_HTTP3
 #include <quiche.h>
+#endif
 
 #include "ja4.h"
 
@@ -36,7 +38,9 @@ TEST(NetUtils, RetrieveSystemDnsServers) {
 #endif // _WIN32
 
 static std::vector<uint8_t> prepare_client_hello(const char *sni);
+#ifndef DISABLE_HTTP3
 static std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni);
+#endif
 
 struct TestDatum {
     std::string sni;
@@ -49,9 +53,11 @@ static const TestDatum TEST_DATA_TCP[] = {
 };
 
 // Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
+#ifndef DISABLE_HTTP3
 static const TestDatum TEST_DATA_QUIC[] = {
         {"example.org", {"q13d0311h3_55b375c5d22e_653d80c3fe9d"}},
 };
+#endif
 
 TEST(NetUtils, JA4Tcp) {
     ag::vpn_post_quantum_group_set_enabled(true);
@@ -62,6 +68,7 @@ TEST(NetUtils, JA4Tcp) {
     }
 }
 
+#ifndef DISABLE_HTTP3
 TEST(NetUtils, JA4Quic) {
     ag::vpn_post_quantum_group_set_enabled(true);
     for (const auto &[sni, fingerprints] : TEST_DATA_QUIC) {
@@ -83,6 +90,7 @@ TEST(NetUtils, JA4Quic) {
         ASSERT_NE(fingerprints.end(), std::find(fingerprints.begin(), fingerprints.end(), fingerprint)) << fingerprint;
     }
 }
+#endif
 
 std::vector<uint8_t> prepare_client_hello(const char *sni) {
     static constexpr uint8_t HTTP2_ALPN[] = {2, 'h', '2'};
@@ -100,6 +108,7 @@ std::vector<uint8_t> prepare_client_hello(const char *sni) {
     return initial;
 }
 
+#ifndef DISABLE_HTTP3
 std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni) {
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
     ag::SslPtr ssl;
@@ -133,3 +142,4 @@ std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni) {
     }
     return initials;
 }
+#endif
