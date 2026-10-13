@@ -77,13 +77,14 @@ TEST_F(PingTest, SocketProtectorCanRejectAnEndpointBeforeConnect) {
             .endpoints = {&endpoint, 1},
             .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
-            .socket_protect_handler = {
-                    [](void *arg, SocketProtectEvent *event) {
-                        ++*(int *) arg;
-                        event->result = -1;
+            .socket_protect_handler =
+                    {
+                            [](void *arg, SocketProtectEvent *event) {
+                                ++*(int *) arg;
+                                event->result = -1;
+                            },
+                            &protect_calls,
                     },
-                    &protect_calls,
-            },
     };
     test_ctx.ping.reset(ping_start(&info,
             {

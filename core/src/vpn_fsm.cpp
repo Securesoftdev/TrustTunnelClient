@@ -294,13 +294,14 @@ static void run_ping(void *ctx, void *) {
             .quic_version = QUICHE_PROTOCOL_VERSION,
 #endif
 #ifdef __ANDROID__
-            .socket_protect_handler = {
-                    [](void *arg, SocketProtectEvent *event) {
-                        auto *vpn = (Vpn *) arg;
-                        vpn->handler.func(vpn->handler.arg, VPN_EVENT_PROTECT_SOCKET, event);
+            .socket_protect_handler =
+                    {
+                            [](void *arg, SocketProtectEvent *event) {
+                                auto *vpn = (Vpn *) arg;
+                                vpn->handler.func(vpn->handler.arg, VPN_EVENT_PROTECT_SOCKET, event);
+                            },
+                            vpn,
                     },
-                    vpn,
-            },
 #endif
     };
 
