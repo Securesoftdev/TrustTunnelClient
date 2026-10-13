@@ -67,6 +67,47 @@ public:
     }
 };
 
+TEST_F(PingTest, SocketProtectorCanRejectAnEndpointBeforeConnect) {
+    TestCtx test_ctx = generate_test_ctx();
+    VpnEndpoint endpoint{.address = sockaddr_from_str("192.0.2.1:443"), .name = "example"};
+    int protect_calls = 0;
+    PingInfo info = {
+            .loop = test_ctx.loop,
+            .network_manager = test_ctx.network_manager,
+            .endpoints = {&endpoint, 1},
+            .timeout_ms = SHORT_PING_TIMEOUT_MS,
+            .nrounds = 1,
+            .socket_protect_handler =
+                    {
+                            [](void *arg, SocketProtectEvent *event) {
+                                ++*(int *) arg;
+                                event->result = -1;
+                            },
+                            &protect_calls,
+                    },
+    };
+    test_ctx.ping.reset(ping_start(&info,
+            {
+                    [](void *ctx, const PingResult *result) {
+                        auto *test_ctx = (TestCtx *) ctx;
+                        if (result->status == PING_FINISHED) {
+                            test_ctx->finished = true;
+                            event_base_loopbreak(test_ctx->base);
+                        } else {
+                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
+                        }
+                    },
+                    &test_ctx,
+            }));
+
+    run_event_loop();
+
+    EXPECT_GT(protect_calls, 0);
+    EXPECT_TRUE(test_ctx.finished);
+    ASSERT_EQ(test_ctx.results.size(), 1);
+    EXPECT_EQ(test_ctx.results.at("192.0.2.1:443").status, PING_SOCKET_ERROR);
+}
+
 TEST_F(PingTest, Single) {
     static const std::pair<const char *, PingStatus> TEST_DATA[] = {
             {"1.1.1.1:443", PING_OK},

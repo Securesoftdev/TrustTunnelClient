@@ -73,6 +73,11 @@ typedef struct {
 LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, LocationsPingerHandler handler,
         VpnEventLoop *ev_loop, VpnNetworkManager *network_manager);
 
+/** Start a pinger whose connection sockets are protected before connecting. */
+LocationsPinger *locations_pinger_start_with_socket_protector(const LocationsPingerInfo *info,
+        LocationsPingerHandler handler, VpnEventLoop *ev_loop, VpnNetworkManager *network_manager,
+        SocketProtectHandler socket_protect_handler);
+
 /**
  * Stop pinging
  * @param pinger the pinger
