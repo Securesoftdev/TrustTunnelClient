@@ -34,6 +34,11 @@ struct SocketProtectEvent {
     int result;           // FILLED BY HANDLER: operation result (0 in case of success)
 };
 
+struct SocketProtectHandler {
+    void (*func)(void *arg, SocketProtectEvent *event) = nullptr;
+    void *arg = nullptr;
+};
+
 struct CertVerifyCtx {
     X509 *cert = nullptr;
     STACK_OF(X509) *chain = nullptr;

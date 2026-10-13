@@ -81,6 +81,7 @@ struct Ping {
     VpnEventLoop *loop;
     VpnNetworkManager *network_manager;
     PingHandler handler;
+    SocketProtectHandler socket_protect_handler;
 
     std::list<PingConn> pending;    // Waiting to start connection.
     std::list<PingConn> inprogress; // Connection started.
@@ -572,6 +573,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     self->id = info->id ? std::string{info->id} : AG_FMT("{}", next_id++);
     self->loop = info->loop;
     self->handler = handler;
+    self->socket_protect_handler = info->socket_protect_handler;
     self->anti_dpi = info->anti_dpi;
 #ifndef DISABLE_HTTP3
     self->main_protocol = info->main_protocol;
@@ -714,6 +716,13 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
 }
 
 void conn_protect_socket(PingConn *conn, SocketProtectEvent *event) {
+    if (auto handler = conn->ping->socket_protect_handler.func) {
+        handler(conn->ping->socket_protect_handler.arg, event);
+        if (event->result != 0) {
+            log_conn(conn->ping, conn, dbg, "Failed to protect socket with application handler");
+            return;
+        }
+    }
 #ifndef _WIN32
     if (conn->bound_if != 0) {
 #ifdef __MACH__

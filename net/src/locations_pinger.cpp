@@ -82,6 +82,7 @@ struct LocationsPinger {
     AutoVpnRelay relay_parallel;
     uint32_t quic_max_idle_timeout_ms;
     uint32_t quic_version;
+    SocketProtectHandler socket_protect_handler;
 };
 
 struct FinalizeLocationInfo {
@@ -263,7 +264,7 @@ static void start_location_ping(LocationsPinger *pinger) {
             {i->info->endpoints.data, i->info->endpoints.size}, pinger->timeout_ms,
             {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds, pinger->main_protocol,
             pinger->anti_dpi, pinger->handoff, {i->info->relays.data, i->info->relays.size}, *pinger->relay_parallel,
-            pinger->quic_max_idle_timeout_ms, pinger->quic_version};
+            pinger->quic_max_idle_timeout_ms, pinger->quic_version, pinger->socket_protect_handler};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
     if (!ping) {
         FinalizeLocationInfo info{std::move(*i), pinger->pending_locations.size() == 1 && pinger->locations.empty()};
@@ -311,6 +312,7 @@ LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, Locatio
     pinger->handoff = info->handoff;
     pinger->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms;
     pinger->quic_version = info->quic_version;
+    pinger->socket_protect_handler = info->socket_protect_handler;
     if (info->relay_parallel) {
         pinger->relay_parallel = vpn_relay_clone(info->relay_parallel);
     }

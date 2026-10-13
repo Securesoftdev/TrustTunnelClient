@@ -40,6 +40,7 @@ typedef struct {
     const VpnRelay *relay_parallel;    // Ping through this relay in parallel with normal pings.
     uint32_t quic_max_idle_timeout_ms; // QUIC connection max idle timeout. Set `0` to use the default.
     uint32_t quic_version;             // QUIC version. Set `0` to use the default.
+    SocketProtectHandler socket_protect_handler; // Protect pinger sockets before connecting (required on Android).
 } LocationsPingerInfo;
 
 typedef struct {

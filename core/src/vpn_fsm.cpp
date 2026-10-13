@@ -293,6 +293,15 @@ static void run_ping(void *ctx, void *) {
 #ifndef DISABLE_HTTP3
             .quic_version = QUICHE_PROTOCOL_VERSION,
 #endif
+#ifdef __ANDROID__
+            .socket_protect_handler = {
+                    [](void *arg, SocketProtectEvent *event) {
+                        auto *vpn = (Vpn *) arg;
+                        vpn->handler.func(vpn->handler.arg, VPN_EVENT_PROTECT_SOCKET, event);
+                    },
+                    vpn,
+            },
+#endif
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
