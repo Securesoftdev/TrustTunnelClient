@@ -40,9 +40,6 @@ jobs:
         with:
           toolchain: '1.85.0'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android and native build tools
         shell: bash
         run: |
