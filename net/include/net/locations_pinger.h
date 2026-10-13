@@ -32,15 +32,14 @@ typedef struct {
 #ifdef __MACH__
     bool query_all_interfaces; // Query all interfaces to calculate pings. Supported only on Apple platforms.
 #endif
-    VpnUpstreamProtocol main_protocol;           // Application-level protocol override for VPN endpoint protocols.
-                                                 // @see `VpnUpstreamConfig.main_protocol` for full description.
-    bool anti_dpi;                               // Enable anti-DPI measures.
-    bool handoff;                                // For internal use. Applications should set this parameter to `false`.
-                                                 // If `true`, pass the connection state with the ping result.
-    const VpnRelay *relay_parallel;              // Ping through this relay in parallel with normal pings.
-    uint32_t quic_max_idle_timeout_ms;           // QUIC connection max idle timeout. Set `0` to use the default.
-    uint32_t quic_version;                       // QUIC version. Set `0` to use the default.
-    SocketProtectHandler socket_protect_handler; // Protect pinger sockets before connecting (required on Android).
+    VpnUpstreamProtocol main_protocol; // Application-level protocol override for VPN endpoint protocols.
+                                       // @see `VpnUpstreamConfig.main_protocol` for full description.
+    bool anti_dpi;                     // Enable anti-DPI measures.
+    bool handoff;                      // For internal use. Applications should set this parameter to `false`.
+                                       // If `true`, pass the connection state with the ping result.
+    const VpnRelay *relay_parallel;    // Ping through this relay in parallel with normal pings.
+    uint32_t quic_max_idle_timeout_ms; // QUIC connection max idle timeout. Set `0` to use the default.
+    uint32_t quic_version;             // QUIC version. Set `0` to use the default.
 } LocationsPingerInfo;
 
 typedef struct {
@@ -73,6 +72,11 @@ typedef struct {
  */
 LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, LocationsPingerHandler handler,
         VpnEventLoop *ev_loop, VpnNetworkManager *network_manager);
+
+/** Start a pinger whose connection sockets are protected before connecting. */
+LocationsPinger *locations_pinger_start_with_socket_protector(const LocationsPingerInfo *info,
+        LocationsPingerHandler handler, VpnEventLoop *ev_loop, VpnNetworkManager *network_manager,
+        SocketProtectHandler socket_protect_handler);
 
 /**
  * Stop pinging

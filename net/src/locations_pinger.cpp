@@ -287,8 +287,9 @@ static void start_location_ping(LocationsPinger *pinger) {
     }
 }
 
-LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, LocationsPingerHandler handler,
-        VpnEventLoop *ev_loop, VpnNetworkManager *network_manager) {
+LocationsPinger *locations_pinger_start_with_socket_protector(const LocationsPingerInfo *info,
+        LocationsPingerHandler handler, VpnEventLoop *ev_loop, VpnNetworkManager *network_manager,
+        SocketProtectHandler socket_protect_handler) {
     auto *pinger = new LocationsPinger{};
 
     pinger->handler = handler;
@@ -312,7 +313,7 @@ LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, Locatio
     pinger->handoff = info->handoff;
     pinger->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms;
     pinger->quic_version = info->quic_version;
-    pinger->socket_protect_handler = info->socket_protect_handler;
+    pinger->socket_protect_handler = socket_protect_handler;
     if (info->relay_parallel) {
         pinger->relay_parallel = vpn_relay_clone(info->relay_parallel);
     }
@@ -346,6 +347,11 @@ LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, Locatio
     }
 
     return pinger;
+}
+
+LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, LocationsPingerHandler handler,
+        VpnEventLoop *ev_loop, VpnNetworkManager *network_manager) {
+    return locations_pinger_start_with_socket_protector(info, handler, ev_loop, network_manager, {});
 }
 
 void locations_pinger_stop(LocationsPinger *pinger) {
