@@ -69,7 +69,9 @@ jobs:
 
       - name: Build release AAR for arm64-v8a
         working-directory: platform/android
-        run: ./gradlew assembleRelease -PnativeAbi=arm64-v8a --no-daemon
+        run: |
+          printf 'cmake.dir=%s\n' "$ANDROID_HOME/cmake/3.31.6" > local.properties
+          ./gradlew assembleRelease -PnativeAbi=arm64-v8a --no-daemon
 
       - name: Verify AAR and write source manifest
         shell: bash
