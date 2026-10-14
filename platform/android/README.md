@@ -38,12 +38,20 @@ echo cmake.dir=$(dirname $(dirname $(which cmake))) >> local.properties
 # or ./gradlew assembleDebug
 ```
 
-### Reproducing the arm64 CI build
+### Building SecureSoft client ABIs locally
 
-The `Build Android arm64 adapter` GitHub Actions workflow runs the dependency
-bootstrap above on Ubuntu with Python 3.13, Conan 2.12, Go 1.23.11, Rust 1.85,
-JDK 17, Ninja 1.13, Android SDK 35, NDK 28.1.13356709 and CMake 3.31.6. It
-then builds from the pull request's head commit using:
+The SecureSoft owner requires local builds on the workstation. Prepare Python
+3.13, Conan 2.12, Go 1.23.11, Rust 1.85, JDK 17, Ninja 1.13, Android SDK 35,
+NDK 28.1.13356709 and CMake 3.31.6, then run the dependency bootstrap from
+the repository root. Build each ABI packaged by the client from one exact
+source commit. On Windows, the repository helper verifies the AAR contents
+and writes a local SHA/source manifest for each ABI:
+
+```powershell
+python scripts/build_android_app_abis.py --output-dir D:\trusttunnel-local-abis
+```
+
+The equivalent manual Gradle command for one ABI is:
 
 ```bash
 cd platform/android
@@ -51,8 +59,9 @@ cd platform/android
 ```
 
 `nativeAbi` is optional. Without it, the adapter keeps its normal ABI selection.
-The workflow checks that the fresh release AAR contains exactly
-`jni/arm64-v8a/libtrusttunnel_android.so`. Its seven-day CI artifact contains
-the AAR, the extracted `.so`, and `manifest.json` with both SHA-256 hashes,
-the source commit, workflow run, and toolchain versions. This artifact is for
-integration testing only; the workflow does not publish a package.
+Copy `lib/build/outputs/aar/lib-release.aar` after each manual build because
+the next ABI overwrites that path. The helper checks each AAR for only its
+requested `jni/<abi>/libtrusttunnel_android.so` and records SHA-256, source
+commit, ABI, and local toolchain versions. The `Build Android app ABIs` workflow
+is manual-only and must not be dispatched without the owner's explicit request.
+No local build publishes a package by itself.

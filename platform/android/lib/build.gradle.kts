@@ -16,7 +16,7 @@ android {
         minSdk = 26
 
         // Keep the published adapter's default ABI set unchanged. CI uses this
-        // property to build and verify a single arm64 native library.
+        // property to build and verify one requested native ABI per job.
         providers.gradleProperty("nativeAbi").orNull?.let { abi ->
             ndk { abiFilters += abi }
         }

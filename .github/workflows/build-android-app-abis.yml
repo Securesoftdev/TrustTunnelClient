@@ -1,17 +1,19 @@
-name: Build Android arm64 adapter
+name: Build Android app ABIs
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  android-arm64:
+  android-abi:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
     steps:
       - name: Check out the source commit
         uses: actions/checkout@v4
@@ -61,20 +63,22 @@ jobs:
         id: conan-cache
         with:
           path: ~/.conan2
-          key: android-arm64-conan2-v1-${{ hashFiles('conanfile.py', 'conandata.yml', 'scripts/bootstrap_conan_deps.py') }}
+          key: android-${{ matrix.abi }}-conan2-v1-${{ hashFiles('conanfile.py', 'conandata.yml', 'scripts/bootstrap_conan_deps.py') }}
 
       - name: Bootstrap Conan dependencies
         if: steps.conan-cache.outputs.cache-hit != 'true'
         run: python3 scripts/bootstrap_conan_deps.py
 
-      - name: Build release AAR for arm64-v8a
+      - name: Build release AAR for ${{ matrix.abi }}
         working-directory: platform/android
         run: |
           printf 'cmake.dir=%s\n' "$ANDROID_HOME/cmake/3.31.6" > local.properties
-          ./gradlew assembleRelease -PnativeAbi=arm64-v8a --no-daemon
+          ./gradlew assembleRelease -PnativeAbi=${{ matrix.abi }} --no-daemon
 
       - name: Verify AAR and write source manifest
         shell: bash
+        env:
+          TARGET_ABI: ${{ matrix.abi }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -87,8 +91,9 @@ jobs:
           import zipfile
 
           aar = pathlib.Path('platform/android/lib/build/outputs/aar/lib-release.aar')
-          output = pathlib.Path('android-arm64-artifact')
-          member = 'jni/arm64-v8a/libtrusttunnel_android.so'
+          abi = os.environ['TARGET_ABI']
+          output = pathlib.Path(f'android-{abi}-artifact')
+          member = f'jni/{abi}/libtrusttunnel_android.so'
           if not aar.is_file():
               raise SystemExit(f'Missing release AAR: {aar}')
           output.mkdir()
@@ -100,7 +105,8 @@ jobs:
               if archive.getinfo(member).file_size == 0:
                   raise SystemExit(f'Empty native library: {member}')
               (output / 'libtrusttunnel_android.so').write_bytes(archive.read(member))
-          shutil.copy2(aar, output / 'TrustTunnelClient-android-arm64-release.aar')
+          aar_name = f'TrustTunnelClient-android-{abi}-release.aar'
+          shutil.copy2(aar, output / aar_name)
 
           def sha256(path):
               return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -117,8 +123,8 @@ jobs:
               'source_sha': source_sha,
               'workflow_run': f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
               'workflow_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
-              'abi': 'arm64-v8a',
-              'aar_sha256': sha256(output / 'TrustTunnelClient-android-arm64-release.aar'),
+              'abi': abi,
+              'aar_sha256': sha256(output / aar_name),
               'so_sha256': sha256(output / 'libtrusttunnel_android.so'),
               'toolchain': {
                   'python': version('python3', '--version'),
@@ -139,7 +145,7 @@ jobs:
       - name: Upload verified build for integration testing
         uses: actions/upload-artifact@v4
         with:
-          name: trusttunnel-android-arm64-${{ github.event.pull_request.head.sha || github.sha }}
-          path: android-arm64-artifact/
+          name: trusttunnel-android-${{ matrix.abi }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: android-${{ matrix.abi }}-artifact/
           if-no-files-found: error
           retention-days: 7
