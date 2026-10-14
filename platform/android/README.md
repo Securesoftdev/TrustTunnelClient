@@ -38,21 +38,23 @@ echo cmake.dir=$(dirname $(dirname $(which cmake))) >> local.properties
 # or ./gradlew assembleDebug
 ```
 
-### Reproducing the arm64 CI build
+### Reproducing the client ABI CI build
 
-The `Build Android arm64 adapter` GitHub Actions workflow runs the dependency
+The `Build Android app ABIs` GitHub Actions workflow runs the dependency
 bootstrap above on Ubuntu with Python 3.13, Conan 2.12, Go 1.23.11, Rust 1.85,
 JDK 17, Ninja 1.13, Android SDK 35, NDK 28.1.13356709 and CMake 3.31.6. It
-then builds from the pull request's head commit using:
+then builds each ABI packaged by the SecureSoft client from the pull request's
+head commit using:
 
 ```bash
 cd platform/android
 ./gradlew assembleRelease -PnativeAbi=arm64-v8a --no-daemon
+# Repeat with -PnativeAbi=armeabi-v7a and -PnativeAbi=x86_64.
 ```
 
 `nativeAbi` is optional. Without it, the adapter keeps its normal ABI selection.
-The workflow checks that the fresh release AAR contains exactly
-`jni/arm64-v8a/libtrusttunnel_android.so`. Its seven-day CI artifact contains
-the AAR, the extracted `.so`, and `manifest.json` with both SHA-256 hashes,
-the source commit, workflow run, and toolchain versions. This artifact is for
+Each matrix job checks that its fresh release AAR contains exactly one native
+library for its requested ABI. Its seven-day CI artifact contains the AAR,
+the extracted `.so`, and `manifest.json` with both SHA-256 hashes, the ABI,
+source commit, workflow run, and toolchain versions. These artifacts are for
 integration testing only; the workflow does not publish a package.
